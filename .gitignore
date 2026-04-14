@@ -1,0 +1,13 @@
+# Python
+backend/.venv/
+backend/__pycache__/
+backend/**/*.pyc
+backend/model/*.joblib
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Env files
+frontend/.env
+backend/.env
