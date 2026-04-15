@@ -41,6 +41,12 @@ export function OpsScheduler() {
 
   const [optimizerSpecialty, setOptimizerSpecialty] = useState("General");
   const [recommendation, setRecommendation] = useState(null);
+  const [doctorSlotQuery, setDoctorSlotQuery] = useState({
+    slot_start: `${today}T10:00:00`,
+    slot_end: `${today}T10:15:00`,
+    specialty: "",
+  });
+  const [availableDoctors, setAvailableDoctors] = useState([]);
 
   const clearNotices = () => {
     setMessage("");
@@ -149,6 +155,24 @@ export function OpsScheduler() {
     }
   };
 
+  const handleGetDoctorsForSlot = async () => {
+    clearNotices();
+    setLoading(true);
+    try {
+      const response = await doctorOpsAPI.getAvailableForSlot(
+        doctorSlotQuery.slot_start,
+        doctorSlotQuery.slot_end,
+        doctorSlotQuery.specialty || undefined,
+      );
+      setAvailableDoctors(response.data.doctors || []);
+      setMessage(`Found ${response.data.count || 0} available doctor(s) in the selected slot.`);
+    } catch (err) {
+      setError(parseError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Clinic Operations</h2>
@@ -241,6 +265,57 @@ export function OpsScheduler() {
               <div><span className="font-semibold">Status:</span> {recommendation.status}</div>
               <div><span className="font-semibold">Load Score:</span> {recommendation.weighted_load_score}</div>
             </div>
+          )}
+        </div>
+      </div>
+
+      <div className="bg-gray-50 border rounded-lg p-4 space-y-3">
+        <h3 className="text-lg font-semibold">7. Available Doctors For Specific Slot</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            className="input-field"
+            type="datetime-local"
+            value={doctorSlotQuery.slot_start.slice(0, 16)}
+            onChange={(e) =>
+              setDoctorSlotQuery({ ...doctorSlotQuery, slot_start: `${e.target.value}:00` })
+            }
+          />
+          <input
+            className="input-field"
+            type="datetime-local"
+            value={doctorSlotQuery.slot_end.slice(0, 16)}
+            onChange={(e) =>
+              setDoctorSlotQuery({ ...doctorSlotQuery, slot_end: `${e.target.value}:00` })
+            }
+          />
+          <input
+            className="input-field"
+            placeholder="Specialty (optional)"
+            value={doctorSlotQuery.specialty}
+            onChange={(e) =>
+              setDoctorSlotQuery({ ...doctorSlotQuery, specialty: e.target.value })
+            }
+          />
+        </div>
+        <button
+          disabled={loading}
+          className="btn-primary"
+          type="button"
+          onClick={handleGetDoctorsForSlot}
+        >
+          Get Available Doctors
+        </button>
+
+        <div className="max-h-56 overflow-y-auto space-y-2">
+          {availableDoctors.map((doc) => (
+            <div key={doc.doctor_id} className="bg-white border rounded p-3">
+              <div className="font-medium">{doc.name} ({doc.doctor_id})</div>
+              <div className="text-sm text-gray-600">Specialty: {doc.specialty}</div>
+              <div className="text-sm text-gray-600">Shift: {doc.shift_start} - {doc.shift_end}</div>
+            </div>
+          ))}
+          {!availableDoctors.length && (
+            <p className="text-sm text-gray-600">No doctor list yet. Pick a time slot and click the button.</p>
           )}
         </div>
       </div>

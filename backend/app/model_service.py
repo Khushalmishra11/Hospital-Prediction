@@ -92,16 +92,45 @@ class LoadPredictorService:
         return max(prediction, 0.0)
 
     @staticmethod
-    def estimate_wait_minutes(predicted_load: float, doctor_count: int, avg_consultation_minutes: float) -> float:
+    def estimate_wait_minutes(
+        predicted_load: float,
+        doctor_count: int,
+        avg_consultation_minutes: float,
+        demand_patients: float | None = None,
+    ) -> float:
+        """
+        Estimate expected waiting time.
+
+        Hybrid logic is used:
+        - For low-volume real demand, operational guardrails dominate.
+        - For normal/high-volume scenarios, the learned load score still drives behavior.
+        """
         service_capacity = max(doctor_count, 1) * (60.0 / max(avg_consultation_minutes, 1.0))
-        utilization = predicted_load / max(service_capacity, 0.1)
 
-        if utilization <= 1.0:
-            wait = utilization * 12.0
+        # Guardrail: if active demand is less than or equal to available doctors,
+        # patients can generally be seen immediately.
+        if demand_patients is not None:
+            effective_demand = max(float(demand_patients), 0.0)
+            if effective_demand <= max(doctor_count, 1):
+                return 0.0
+
+            utilization = effective_demand / max(service_capacity, 0.1)
         else:
-            wait = 12.0 + ((utilization - 1.0) * 35.0)
+            utilization = predicted_load / max(service_capacity, 0.1)
 
-        return round(float(max(wait, 1.0)), 2)
+        # Second guardrail: very low utilization should not create artificial waits.
+        if utilization <= 0.40:
+            return 0.0
+
+        if utilization <= 0.75:
+            # Ramp very gently between low and moderate utilization.
+            wait = (utilization - 0.40) * 8.0
+        elif utilization <= 1.0:
+            wait = 2.8 + ((utilization - 0.75) * 16.0)
+        else:
+            wait = 6.8 + ((utilization - 1.0) * 35.0)
+
+        return round(float(wait), 2)
 
     @staticmethod
     def risk_level(predicted_load: float) -> str:

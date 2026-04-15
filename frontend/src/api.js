@@ -46,6 +46,14 @@ export const doctorOpsAPI = {
     apiClient.patch(`/doctors/${doctorId}/status`, { status }),
   getAvailability: (specialty) =>
     apiClient.get("/doctors/availability", { params: { specialty } }),
+  getAvailableForSlot: (slotStart, slotEnd, specialty) =>
+    apiClient.get("/doctors/available-slot", {
+      params: {
+        slot_start: slotStart,
+        slot_end: slotEnd,
+        specialty,
+      },
+    }),
 };
 
 export const schedulingAPI = {

@@ -447,3 +447,113 @@ class PredictionDatabase:
             "status": best.get("status", ""),
             "weighted_load_score": round(best_score, 2),
         }
+
+    @staticmethod
+    def get_available_doctors_for_slot(
+        slot_start: str,
+        slot_end: str,
+        specialty: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return doctors who are available and free for a specific slot interval."""
+        db = get_firestore_db()
+        start_dt = datetime.fromisoformat(slot_start)
+        end_dt = datetime.fromisoformat(slot_end)
+        if end_dt <= start_dt:
+            raise ValueError("slot_end must be greater than slot_start")
+
+        date_str = start_dt.date().isoformat()
+        wanted_specialty = specialty.strip().lower() if specialty else None
+        doctors = {
+            doc.id: PredictionDatabase._to_json_safe(doc.to_dict())
+            for doc in db.collection("doctors").stream()
+        }
+
+        shifts = list(
+            db.collection("doctor_shifts")
+            .where("date", "==", date_str)
+            .where("is_available", "==", True)
+            .stream()
+        )
+
+        appointments = list(
+            db.collection("appointments")
+            .where("slot_date", "==", date_str)
+            .stream()
+        )
+
+        blocked_by_doctor: dict[str, list[tuple[str, str]]] = {}
+        for appt in appointments:
+            row = appt.to_dict()
+            if row.get("status") in {"cancelled", "no_show"}:
+                continue
+            doctor_id = row.get("doctor_id")
+            if not doctor_id:
+                continue
+            blocked_by_doctor.setdefault(doctor_id, []).append(
+                (row.get("slot_start"), row.get("slot_end"))
+            )
+
+        # Build shift map for the target date; if a doctor has no entry in
+        # doctor_shifts, fallback to profile-level shift_start/shift_end.
+        shift_map: dict[str, dict[str, Any]] = {}
+        for shift_doc in shifts:
+            shift = PredictionDatabase._to_json_safe(shift_doc.to_dict())
+            doctor_id = shift.get("doctor_id")
+            if doctor_id:
+                shift_map[doctor_id] = shift
+
+        available: list[dict[str, Any]] = []
+        for doctor_id, doctor in doctors.items():
+            status = str(doctor.get("status", "")).lower()
+            if status != "available":
+                continue
+
+            doctor_specialty = str(doctor.get("specialty", "")).strip()
+            if wanted_specialty and doctor_specialty.lower() != wanted_specialty:
+                continue
+
+            shift = shift_map.get(doctor_id)
+            start_hhmm = None
+            end_hhmm = None
+            if shift:
+                start_hhmm = shift.get("start_time")
+                end_hhmm = shift.get("end_time")
+            else:
+                # Fallback: use shift window from doctor profile if per-day shift
+                # rows were not created.
+                start_hhmm = doctor.get("shift_start")
+                end_hhmm = doctor.get("shift_end")
+
+            if not start_hhmm or not end_hhmm:
+                continue
+
+            shift_start_dt = PredictionDatabase._combine_dt(start_dt.date(), start_hhmm)
+            shift_end_dt = PredictionDatabase._combine_dt(start_dt.date(), end_hhmm)
+            if start_dt < shift_start_dt or end_dt > shift_end_dt:
+                continue
+
+            overlap = False
+            for b_start, b_end in blocked_by_doctor.get(doctor_id, []):
+                if not b_start or not b_end:
+                    continue
+                if not (slot_end <= b_start or slot_start >= b_end):
+                    overlap = True
+                    break
+
+            if overlap:
+                continue
+
+            available.append(
+                {
+                    "doctor_id": doctor.get("doctor_id", doctor_id),
+                    "name": doctor.get("name", doctor_id),
+                    "specialty": doctor_specialty or "General",
+                    "status": doctor.get("status", "available"),
+                    "shift_start": start_hhmm,
+                    "shift_end": end_hhmm,
+                    "slot_date": date_str,
+                }
+            )
+
+        available.sort(key=lambda d: (d.get("specialty", ""), d.get("name", "")))
+        return available

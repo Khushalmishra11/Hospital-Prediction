@@ -116,14 +116,29 @@ def predict_load(payload: PredictionRequest, user_id: str = Depends(get_current_
     try:
         feature_dict = payload.model_dump()
         feature_dict["is_holiday"] = int(payload.is_holiday)
+        total_patients = payload.scheduled_appointments + payload.walk_in_patients
 
         predicted_load = service.predict_load(feature_dict)
+
+        # Operational guardrail for low-volume scenarios: when patients are fewer
+        # than or equal to available doctors, cap the displayed load to a realistic level.
+        if total_patients <= payload.doctor_count:
+            predicted_load = min(predicted_load, float(total_patients))
+
         wait_minutes = service.estimate_wait_minutes(
             predicted_load=predicted_load,
             doctor_count=payload.doctor_count,
             avg_consultation_minutes=payload.avg_consultation_minutes,
+            demand_patients=float(total_patients),
         )
-        risk = service.risk_level(predicted_load)
+        service_capacity = max(payload.doctor_count, 1) * (
+            60.0 / max(payload.avg_consultation_minutes, 1.0)
+        )
+        demand_utilization = float(total_patients) / max(service_capacity, 0.1)
+        if total_patients <= payload.doctor_count or demand_utilization <= 0.40:
+            risk = "LOW"
+        else:
+            risk = service.risk_level(predicted_load)
 
         result = PredictionResponse(
             predicted_load_score=round(predicted_load, 2),
@@ -203,6 +218,26 @@ def get_doctor_availability(specialty: str | None = None, user_id: str = Depends
     try:
         data = db_service.get_doctor_availability(specialty=specialty)
         return {"status": "success", "doctors": data, "count": len(data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/doctors/available-slot")
+def get_available_doctors_for_slot(
+    slot_start: str,
+    slot_end: str,
+    specialty: str | None = None,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        doctors = db_service.get_available_doctors_for_slot(
+            slot_start=slot_start,
+            slot_end=slot_end,
+            specialty=specialty,
+        )
+        return {"status": "success", "doctors": doctors, "count": len(doctors)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
