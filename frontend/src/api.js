@@ -40,4 +40,31 @@ export const trainingAPI = {
   trainModel: () => apiClient.post("/train"),
 };
 
+export const doctorOpsAPI = {
+  createOrUpdateDoctor: (payload) => apiClient.post("/doctors", payload),
+  updateDoctorStatus: (doctorId, status) =>
+    apiClient.patch(`/doctors/${doctorId}/status`, { status }),
+  getAvailability: (specialty) =>
+    apiClient.get("/doctors/availability", { params: { specialty } }),
+};
+
+export const schedulingAPI = {
+  upsertShift: (payload) => apiClient.post("/shifts", payload),
+  getSlots: (date, specialty) => apiClient.get("/slots", { params: { date, specialty } }),
+  getAppointments: (params) => apiClient.get("/appointments", { params }),
+  createAppointment: (payload) => apiClient.post("/appointments", payload),
+  updateAppointmentStatus: (appointmentId, status) =>
+    apiClient.patch(`/appointments/${appointmentId}/status`, { status }),
+};
+
+export const queueAPI = {
+  logEvent: (payload) => apiClient.post("/queue/events", payload),
+  getLiveSummary: () => apiClient.get("/queue/live"),
+};
+
+export const optimizerAPI = {
+  recommendDoctor: (specialty) =>
+    apiClient.get("/optimizer/recommend-doctor", { params: { specialty } }),
+};
+
 export default apiClient;

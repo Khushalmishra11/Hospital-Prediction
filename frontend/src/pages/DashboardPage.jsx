@@ -4,6 +4,10 @@ import { useAuth } from "../context/AuthContext";
 import { predictionAPI } from "../api";
 import PredictionForm from "../components/PredictionForm";
 import PredictionHistory from "../components/PredictionHistory";
+import OpsScheduler from "../components/OpsScheduler";
+import QueueDashboard from "../components/QueueDashboard";
+import AppointmentActions from "../components/AppointmentActions";
+import AppointmentsList from "../components/AppointmentsList";
 import { LogOut, TrendingUp, AlertTriangle, Clock } from "lucide-react";
 
 export function DashboardPage() {
@@ -119,13 +123,61 @@ export function DashboardPage() {
             >
               History
             </button>
+            <button
+              onClick={() => setActiveTab("ops")}
+              className={`px-6 py-4 font-semibold ${
+                activeTab === "ops"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-800"
+              }`}
+            >
+              Slots & Ops
+            </button>
+            <button
+              onClick={() => setActiveTab("queue")}
+              className={`px-6 py-4 font-semibold ${
+                activeTab === "queue"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-800"
+              }`}
+            >
+              Live Queue
+            </button>
+            <button
+              onClick={() => setActiveTab("actions")}
+              className={`px-6 py-4 font-semibold ${
+                activeTab === "actions"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-800"
+              }`}
+            >
+              Status Actions
+            </button>
+            <button
+              onClick={() => setActiveTab("appointments")}
+              className={`px-6 py-4 font-semibold ${
+                activeTab === "appointments"
+                  ? "text-blue-600 border-b-2 border-blue-600"
+                  : "text-gray-600 hover:text-gray-800"
+              }`}
+            >
+              Appointments
+            </button>
           </div>
 
           <div className="p-6">
             {activeTab === "predict" ? (
               <PredictionForm onPredictionComplete={handlePredictionComplete} />
-            ) : (
+            ) : activeTab === "history" ? (
               <PredictionHistory key={refreshKey} />
+            ) : activeTab === "ops" ? (
+              <OpsScheduler />
+            ) : activeTab === "queue" ? (
+              <QueueDashboard />
+            ) : activeTab === "actions" ? (
+              <AppointmentActions />
+            ) : (
+              <AppointmentsList />
             )}
           </div>
         </div>

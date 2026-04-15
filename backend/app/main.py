@@ -4,7 +4,19 @@ from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 
 from .model_service import LoadPredictorService, ModelNotTrainedError
-from .schemas import PredictionRequest, PredictionResponse, TrainResponse
+from .schemas import (
+    AppointmentCreateRequest,
+    AppointmentStatusUpdateRequest,
+    DoctorCreateRequest,
+    DoctorStatusUpdateRequest,
+    OptimizerResponse,
+    PredictionRequest,
+    PredictionResponse,
+    QueueEventRequest,
+    QueueSummaryResponse,
+    ShiftUpsertRequest,
+    TrainResponse,
+)
 from .auth_service import AuthService, UserRegisterRequest
 from .database import PredictionDatabase
 from .firebase_config import initialize_firebase
@@ -157,6 +169,136 @@ def delete_prediction(prediction_id: str, user_id: str = Depends(get_current_use
     try:
         db_service.delete_prediction(user_id, prediction_id)
         return {"status": "success", "message": "Prediction deleted"}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Lightweight Operations Endpoints ====================
+
+@app.post("/doctors")
+def create_or_update_doctor(payload: DoctorCreateRequest, user_id: str = Depends(get_current_user)):
+    """Create or update doctor profile for scheduling and queue dashboards."""
+    try:
+        doctor = db_service.create_or_update_doctor(payload.model_dump())
+        return {"status": "success", "doctor": doctor}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/doctors/{doctor_id}/status")
+def update_doctor_status(doctor_id: str, payload: DoctorStatusUpdateRequest, user_id: str = Depends(get_current_user)):
+    try:
+        doctor = db_service.update_doctor_status(doctor_id, payload.status)
+        return {"status": "success", "doctor": doctor}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/doctors/availability")
+def get_doctor_availability(specialty: str | None = None, user_id: str = Depends(get_current_user)):
+    try:
+        data = db_service.get_doctor_availability(specialty=specialty)
+        return {"status": "success", "doctors": data, "count": len(data)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/shifts")
+def upsert_shift(payload: ShiftUpsertRequest, user_id: str = Depends(get_current_user)):
+    try:
+        shift_id = db_service.upsert_shift(payload.model_dump())
+        return {"status": "success", "shift_id": shift_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/slots")
+def get_slots(date: str, specialty: str | None = None, user_id: str = Depends(get_current_user)):
+    try:
+        from datetime import date as dt_date
+
+        parsed = dt_date.fromisoformat(date)
+        slots = db_service.get_available_slots(parsed, specialty=specialty)
+        return {"status": "success", "slots": slots, "count": len(slots)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid date: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/appointments")
+def create_appointment(payload: AppointmentCreateRequest, user_id: str = Depends(get_current_user)):
+    try:
+        appointment_id = db_service.create_appointment(
+            {
+                **payload.model_dump(),
+                "slot_start": payload.slot_start.isoformat(),
+                "slot_end": payload.slot_end.isoformat(),
+            }
+        )
+        return {"status": "success", "appointment_id": appointment_id}
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/appointments")
+def list_appointments(
+    date: str | None = None,
+    doctor_id: str | None = None,
+    status: str | None = None,
+    limit: int = 200,
+    user_id: str = Depends(get_current_user),
+):
+    try:
+        items = db_service.get_appointments(
+            target_date=date,
+            doctor_id=doctor_id,
+            status=status,
+            limit=limit,
+        )
+        return {"status": "success", "appointments": items, "count": len(items)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/appointments/{appointment_id}/status")
+def update_appointment_status(appointment_id: str, payload: AppointmentStatusUpdateRequest, user_id: str = Depends(get_current_user)):
+    try:
+        appointment = db_service.update_appointment_status(appointment_id, payload.status)
+        return {"status": "success", "appointment": appointment}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/queue/events")
+def create_queue_event(payload: QueueEventRequest, user_id: str = Depends(get_current_user)):
+    try:
+        event_id = db_service.log_queue_event(payload.model_dump())
+        return {"status": "success", "event_id": event_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/queue/live", response_model=QueueSummaryResponse)
+def queue_live(user_id: str = Depends(get_current_user)):
+    try:
+        return QueueSummaryResponse(**db_service.get_live_queue_summary())
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/optimizer/recommend-doctor", response_model=OptimizerResponse)
+def recommend_doctor(specialty: str, user_id: str = Depends(get_current_user)):
+    try:
+        return OptimizerResponse(**db_service.recommend_doctor(specialty=specialty))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
